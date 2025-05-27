@@ -1,0 +1,235 @@
+import numpy as np
+import gymnasium as gym
+from gymnasium import spaces
+
+class UAV5GEnv(gym.Env):
+    def __init__(self, num_uavs=10, grid_size=20):
+        super(UAV5GEnv, self).__init__()
+        self.num_uavs = num_uavs
+        self.grid_size = grid_size
+        self.signal_map = np.zeros((grid_size, grid_size))
+        self.state = np.zeros((num_uavs, 2))  # (x, y) positions
+        self.observation_space = spaces.Box(low=0, high=grid_size, shape=(num_uavs, 2), dtype=np.float32)
+        self.action_space = spaces.Box(low=-1, high=1, shape=(num_uavs, 2), dtype=np.float32)
+
+    def step(self, action):
+        self.state += action
+        self.state = np.clip(self.state, 0, self.grid_size - 1)
+        reward = self._compute_reward()
+        done = False
+        return self.state, reward, done, False, {}
+
+    def reset(self, seed=None, options=None):
+        self.state = np.random.randint(0, self.grid_size, size=(self.num_uavs, 2))
+        return self.state, {}
+
+    def _compute_reward(self):
+        covered = np.zeros((self.grid_size, self.grid_size))
+        for uav in self.state.astype(int):
+            x, y = uav
+            covered[max(0, x - 2):x + 3, max(0, y - 2):y + 3] = 1
+        return np.sum(covered) / (self.grid_size ** 2)
+import numpy as np
+
+def quantum_annealing_optimizer(cost_fn, dim, max_iter=1000, temp_init=10.0, cooling_rate=0.99):
+    best = np.random.uniform(-1, 1, size=(dim,))
+    best_cost = cost_fn(best)
+    temp = temp_init
+
+    for _ in range(max_iter):
+        candidate = best + np.random.normal(0, 0.1, size=(dim,))
+        candidate = np.clip(candidate, -1, 1)
+        candidate_cost = cost_fn(candidate)
+
+        if candidate_cost > best_cost or np.exp((candidate_cost - best_cost) / temp) > np.random.rand():
+            best, best_cost = candidate, candidate_cost
+
+        temp *= cooling_rate
+
+    return best, best_cost
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF
+
+class SignalModel:
+    def __init__(self):
+        self.kernel = RBF()
+        self.gp = GaussianProcessRegressor(kernel=self.kernel)
+
+    def train(self, X, y):
+        self.gp.fit(X, y)
+
+    def predict(self, X_test):
+        return self.gp.predict(X_test, return_std=True)
+import gymnasium as gym
+import numpy as np
+from stable_baselines3 import PPO
+from environment_5g_uav import UAV5GEnv
+
+env = UAV5GEnv()
+model = PPO("MlpPolicy", env, verbose=1)
+
+TIMESTEPS = 10000
+model.learn(total_timesteps=TIMESTEPS)
+
+# Save model
+model.save("ppo_uav_5g")
+from environment_5g_uav import UAV5GEnv
+from quantum_inspired_optimization import quantum_annealing_optimizer
+
+env = UAV5GEnv()
+state, _ = env.reset()
+
+def cost_fn(action_flat):
+    action = action_flat.reshape(env.num_uavs, 2)
+    _, reward, _, _, _ = env.step(action)
+    return reward
+
+# Run optimization
+dim = env.num_uavs * 2
+opt_action, opt_reward = quantum_annealing_optimizer(cost_fn, dim)
+
+print("Best reward found:", opt_reward)
+pip install stable-baselines3 gymnasium numpy scikit-learn
+# During reward computation in _compute_reward
+predicted_signal, _ = self.signal_model.predict(current_positions)
+reward += np.mean(predicted_signal)
+def _get_observation(self):
+    obs = []
+    shared_map = np.zeros((self.grid_size, self.grid_size))
+    for idx, (x, y) in enumerate(self.state.astype(int)):
+        view = self.signal_map[max(0, x-2):x+3, max(0, y-2):y+3]
+        padded_view = np.zeros((5, 5))
+        padded_view[:view.shape[0], :view.shape[1]] = view
+        obs.append(padded_view.flatten())
+        shared_map[x, y] += 1  # Shared memory: visitation counts
+    return np.array(obs), shared_map
+Each UAV:
+  - Has its own actor network (decentralized execution)
+  - Shares a global critic (centralized training)
+class UAVActor(nn.Module):
+    def __init__(self, input_dim, action_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 128), nn.ReLU(),
+            nn.Linear(128, 64), nn.ReLU(),
+            nn.Linear(64, action_dim), nn.Tanh()
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+class CentralCritic(nn.Module):
+    def __init__(self, num_agents, input_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(num_agents * input_dim, 256), nn.ReLU(),
+            nn.Linear(256, 128), nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+
+    def forward(self, joint_obs):
+        return self.net(joint_obs)
+pip install qiskit
+from qiskit import Aer
+from qiskit.utils import QuantumInstance
+from qiskit.algorithms import QAOA
+from qiskit_optimization import QuadraticProgram
+from qiskit_optimization.algorithms import MinimumEigenOptimizer
+from qiskit.algorithms.optimizers import COBYLA
+
+def qaoa_optimize_signal_grid(signal_grid):
+    n = 5
+    problem = QuadraticProgram()
+    for i in range(n):
+        problem.binary_var(name=f'x{i}')
+
+    linear = {f'x{i}': -signal_grid[i] for i in range(n)}
+    quadratic = {(f'x{i}', f'x{j}'): 0.1 for i in range(n) for j in range(n) if i != j}
+
+    problem.minimize(linear=linear, quadratic=quadratic)
+
+    backend = Aer.get_backend("aer_simulator_statevector")
+    qaoa = QAOA(optimizer=COBYLA(), reps=1, quantum_instance=QuantumInstance(backend))
+    optimizer = MinimumEigenOptimizer(qaoa)
+
+    result = optimizer.solve(problem)
+    return result
+import logging
+import os
+
+def setup_logger(name="uav_marl", log_file="logs/train.log"):
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+
+    if not logger.handlers:
+        fh = logging.FileHandler(log_file)
+        ch = logging.StreamHandler()
+
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        fh.setFormatter(formatter)
+        ch.setFormatter(formatter)
+
+        logger.addHandler(fh)
+        logger.addHandler(ch)
+
+    return logger
+from logger import setup_logger
+logger = setup_logger()
+
+logger.info("Training started")
+logger.debug("Action taken: %s", action)
+import matplotlib.pyplot as plt
+import numpy as np
+
+def plot_rewards(reward_history, save_path="results/reward_curve.png"):
+    plt.figure()
+    plt.plot(reward_history, label="Reward")
+    plt.xlabel("Episode")
+    plt.ylabel("Total Reward")
+    plt.title("Training Rewards")
+    plt.legend()
+    plt.grid()
+    plt.savefig(save_path)
+    plt.close()
+
+def plot_uav_positions(positions, grid_size, save_path="results/uav_grid.png"):
+    plt.figure(figsize=(6,6))
+    for uav in positions:
+        x, y = int(uav[0]), int(uav[1])
+        plt.scatter(x, y, marker='^', label="UAV", c='red')
+    plt.xlim(0, grid_size)
+    plt.ylim(0, grid_size)
+    plt.title("UAV Final Positions")
+    plt.grid()
+    plt.savefig(save_path)
+    plt.close()
+pip install tensorboard
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter(log_dir="runs/uav_marl")
+
+# After every episode
+writer.add_scalar("Episode Reward", episode_reward, episode_num)
+writer.add_scalar("Coverage Ratio", coverage_ratio, episode_num)
+writer.add_scalar("Loss/Policy", policy_loss, step)
+writer.add_scalar("Loss/Value", value_loss, step)
+
+# Optional image logging
+writer.add_image("Coverage Map", coverage_map_tensor, global_step)
+tensorboard --logdir=runs
+project/
+│
+├── environment_5g_uav.py
+├── quantum_inspired_optimization.py
+├── bayesian_signal_model.py
+├── train_marl.py
+├── evaluate_with_quantum.py
+│
+├── logger.py
+├── utils/
+│   ├── visualization.py
+│   └── tensorboard_utils.py
+│
+├── results/
+├── logs/
+└── runs/
