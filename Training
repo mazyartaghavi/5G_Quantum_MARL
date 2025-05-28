@@ -1,0 +1,47 @@
+from env.uav_env import UAVEnvironment
+from agents.ppo_ctde_agent import PPOAgent
+from qoptimizer.quantum_optimizer import quantum_inspired_sampling
+import torch
+import numpy as np
+
+n_agents = 10
+n_episodes = 500
+env = UAVEnvironment()
+agents = [PPOAgent(obs_dim=env.observation_space[0].shape[0],
+                   act_dim=env.action_space[0].n) for _ in range(n_agents)]
+
+for episode in range(n_episodes):
+    obs = env.reset()
+    done = False
+    log_probs, actions, rewards, states = [], [], [], []
+
+    while not done:
+        joint_actions, joint_log_probs = [], []
+
+        for i, agent in enumerate(agents):
+            action, log_prob = agent.select_action(obs[i])
+            joint_actions.append(action)
+            joint_log_probs.append(log_prob)
+
+        next_obs, reward, done, _ = env.step(joint_actions)
+
+        for i in range(n_agents):
+            log_probs.append(joint_log_probs[i])
+            actions.append(joint_actions[i])
+            rewards.append(reward[i])
+            states.append(obs[i])
+
+        obs = next_obs
+
+    # Calculate returns and advantages
+    returns = torch.FloatTensor([np.sum(rewards[i:]) for i in range(len(rewards))])
+    advantages = returns - returns.mean()
+
+    for i, agent in enumerate(agents):
+        agent.update(torch.FloatTensor(states),
+                     torch.LongTensor(actions),
+                     torch.stack(log_probs),
+                     returns,
+                     advantages)
+
+    print(f"Episode {episode} - Total Reward: {np.sum(rewards)}")
