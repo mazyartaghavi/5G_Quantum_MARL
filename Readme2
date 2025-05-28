@@ -1,0 +1,21 @@
+# Quantum-Inspired Multi-Agent Reinforcement Learning for UAV-Assisted 5G Network Deployment
+
+This project implements a multi-agent reinforcement learning (MARL) framework for optimizing UAV deployment in 5G network expansion, incorporating quantum-inspired optimization techniques for better exploration–exploitation tradeoffs.
+
+## 🚀 Overview
+
+- **Agents:** 10 UAVs with partial observability
+- **Architecture:** PPO with Centralized Training and Decentralized Execution (CTDE)
+- **Quantum Module:** Simulates QAOA-inspired sampling for action selection
+- **Use Case:** Improving signal coverage through intelligent UAV deployment
+
+## 🧠 Features
+
+- Modular PPO implementation for MARL
+- Environment simulates real-world UAV dynamics
+- Quantum-inspired optimization for enhanced exploration
+- CTDE for coordinated learning and decentralized decision-making
+- Evaluation and visualization tools included
+
+## 🗂️ Project Structure
+
