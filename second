@@ -1,0 +1,127 @@
+# agent_training.py
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from collections import deque
+import random
+from environment import UAV5GEnv
+
+# PPO-specific imports
+from torch.distributions import Categorical
+
+# Device configuration
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Parameters
+EPISODES = 1000
+MAX_STEPS = 100
+GAMMA = 0.99
+LR = 3e-4
+
+# Shared Policy Network for PPO (actor-critic)
+class PolicyNetwork(nn.Module):
+    def __init__(self, obs_size, act_size):
+        super(PolicyNetwork, self).__init__()
+        self.actor = nn.Sequential(
+            nn.Linear(obs_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, act_size),
+            nn.Softmax(dim=-1)
+        )
+        self.critic = nn.Sequential(
+            nn.Linear(obs_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+
+    def forward(self, x):
+        return self.actor(x), self.critic(x)
+
+# PPO Agent Class
+class PPOAgent:
+    def __init__(self, obs_size, act_size):
+        self.policy = PolicyNetwork(obs_size, act_size).to(device)
+        self.optimizer = optim.Adam(self.policy.parameters(), lr=LR)
+        self.eps_clip = 0.2
+
+    def get_action(self, state):
+        state = torch.FloatTensor(state).to(device)
+        probs, _ = self.policy(state)
+        dist = Categorical(probs)
+        action = dist.sample()
+        return action.item(), dist.log_prob(action), dist.entropy()
+
+    def compute_returns(self, rewards, dones, next_value):
+        returns = []
+        R = next_value
+        for step in reversed(range(len(rewards))):
+            R = rewards[step] + GAMMA * R * (1 - dones[step])
+            returns.insert(0, R)
+        return torch.tensor(returns, dtype=torch.float32).to(device)
+
+    def update(self, states, actions, log_probs_old, returns, values):
+        advantages = returns - values.detach()
+        for _ in range(4):  # multiple epochs per update
+            probs, values_new = self.policy(states)
+            dist = Categorical(probs)
+            log_probs = dist.log_prob(actions)
+            ratios = torch.exp(log_probs - log_probs_old.detach())
+            surr1 = ratios * advantages
+            surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+            actor_loss = -torch.min(surr1, surr2).mean()
+            critic_loss = nn.MSELoss()(values_new.squeeze(), returns)
+            loss = actor_loss + 0.5 * critic_loss
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+# Main training loop
+def train():
+    env = UAV5GEnv(num_uavs=10)
+    obs_size = env.observation_space
+    act_size = env.action_space
+    agents = [PPOAgent(obs_size, act_size) for _ in range(env.num_uavs)]
+
+    for episode in range(EPISODES):
+        states = env.reset()
+        log_probs, rewards, values, dones, entropies, actions, states_buffer = [], [], [], [], [], [], []
+
+        for step in range(MAX_STEPS):
+            step_actions, step_log_probs, step_values, step_entropy = [], [], [], []
+            for i, agent in enumerate(agents):
+                action, log_prob, entropy = agent.get_action(states[i])
+                _, value = agent.policy(torch.FloatTensor(states[i]).to(device))
+                step_actions.append(action)
+                step_log_probs.append(log_prob)
+                step_values.append(value.squeeze())
+                step_entropy.append(entropy)
+
+            next_states, reward, done = env.step(step_actions)
+            rewards.append(reward)
+            log_probs.append(torch.stack(step_log_probs))
+            values.append(torch.stack(step_values))
+            entropies.append(torch.stack(step_entropy))
+            actions.append(torch.tensor(step_actions, device=device))
+            states_buffer.append(torch.FloatTensor(states).to(device))
+            dones.append(torch.tensor(done, dtype=torch.float32).to(device))
+            states = next_states
+
+            if all(done):
+                break
+
+        for i, agent in enumerate(agents):
+            final_value = agent.policy(torch.FloatTensor(states[i]).to(device))[1].detach().squeeze()
+            agent.update(
+                states=torch.stack([s[i] for s in states_buffer]),
+                actions=torch.stack([a[i] for a in actions]),
+                log_probs_old=torch.stack([lp[i] for lp in log_probs]),
+                returns=agent.compute_returns([r[i] for r in rewards], [d[i] for d in dones], final_value),
+                values=torch.stack([v[i] for v in values])
+            )
+
+        print(f"Episode {episode+1}: total_reward = {np.mean([sum(r) for r in rewards]):.2f}")
+
+if __name__ == '__main__':
+    train()
