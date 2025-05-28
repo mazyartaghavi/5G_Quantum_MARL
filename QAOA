@@ -1,0 +1,8 @@
+import numpy as np
+
+def quantum_inspired_sampling(action_probs, beta=1.0):
+    """
+    Quantum-inspired sampling using a softmax-like transformation that sharpens probabilities.
+    """
+    scaled_probs = np.power(action_probs, beta)
+    return scaled_probs / np.sum(scaled_probs)
