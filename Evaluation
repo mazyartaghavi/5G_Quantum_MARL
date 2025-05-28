@@ -1,0 +1,17 @@
+from env.uav_env import UAVEnvironment
+from agents.ppo_ctde_agent import PPOAgent
+
+env = UAVEnvironment()
+agents = [PPOAgent(obs_dim=env.observation_space[0].shape[0],
+                   act_dim=env.action_space[0].n) for _ in range(10)]
+
+obs = env.reset()
+done = False
+total_reward = 0
+
+while not done:
+    actions = [agent.select_action(obs[i])[0] for i, agent in enumerate(agents)]
+    obs, reward, done, _ = env.step(actions)
+    total_reward += sum(reward)
+
+print("Evaluation reward:", total_reward)
