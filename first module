@@ -1,0 +1,62 @@
+# environment.py
+import numpy as np
+
+class UAV5GEnvironment:
+    def __init__(self, grid_size=(20, 20), num_uavs=10, coverage_radius=3):
+        self.grid_size = grid_size
+        self.num_uavs = num_uavs
+        self.coverage_radius = coverage_radius
+        self.reset()
+
+    def reset(self):
+        self.grid = np.zeros(self.grid_size)
+        self.uav_positions = [
+            (np.random.randint(self.grid_size[0]), np.random.randint(self.grid_size[1]))
+            for _ in range(self.num_uavs)
+        ]
+        self.step_count = 0
+        return self.get_observations()
+
+    def get_observations(self):
+        obs = []
+        for pos in self.uav_positions:
+            x, y = pos
+            xmin = max(0, x - 2)
+            xmax = min(self.grid_size[0], x + 3)
+            ymin = max(0, y - 2)
+            ymax = min(self.grid_size[1], y + 3)
+            local_view = self.grid[xmin:xmax, ymin:ymax].copy()
+            obs.append(local_view)
+        return obs
+
+    def step(self, actions):
+        rewards = []
+        for idx, action in enumerate(actions):
+            x, y = self.uav_positions[idx]
+            if action == 0: x = max(0, x - 1)  # up
+            elif action == 1: x = min(self.grid_size[0] - 1, x + 1)  # down
+            elif action == 2: y = max(0, y - 1)  # left
+            elif action == 3: y = min(self.grid_size[1] - 1, y + 1)  # right
+            self.uav_positions[idx] = (x, y)
+
+            # Update grid coverage (simple signal coverage model)
+            for dx in range(-self.coverage_radius, self.coverage_radius + 1):
+                for dy in range(-self.coverage_radius, self.coverage_radius + 1):
+                    nx, ny = x + dx, y + dy
+                    if 0 <= nx < self.grid_size[0] and 0 <= ny < self.grid_size[1]:
+                        self.grid[nx, ny] += 1
+
+            rewards.append(np.sum(self.grid) / (self.grid_size[0] * self.grid_size[1]))
+
+        self.step_count += 1
+        done = self.step_count >= 200
+        return self.get_observations(), rewards, done
+
+    def render(self):
+        import matplotlib.pyplot as plt
+        plt.imshow(self.grid, cmap='hot', interpolation='nearest')
+        for (x, y) in self.uav_positions:
+            plt.scatter(y, x, c='blue', marker='o')
+        plt.title("UAV 5G Coverage Map")
+        plt.pause(0.1)
+        plt.clf()
